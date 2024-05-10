@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from typing import Union
 
 from requests import HTTPError
@@ -28,6 +30,11 @@ class Response:
         self.cookies = cookiejar_from_dict({})
 
         self._content = False
+
+        self.writing = True
+        self._request_payload = None
+        self._file = None
+        self._filepath = None
 
         self.reason = None
         self._http_status_code = {
@@ -153,8 +160,62 @@ class Response:
         if http_error_msg:
             raise HTTPError(http_error_msg, response=self)
 
+    def __open_file(self):
+        start_time = time.time()
+        while True:
+            try:
+                if not self._file:
+                    self._file = open(self._filepath, "rb")
+                break
+            except IOError:
+                time.sleep(0.1)
+                if time.time() - start_time > 10:
+                    raise Exception("Could not open the file within 10 seconds")
 
-def build_response(res: Union[dict, list], res_cookies: RequestsCookieJar) -> Response:
+    def iter_content(self, chunk_size=1024):
+        self.__open_file()
+        while True:
+            chunk = self._file.read(chunk_size)
+            while len(chunk) < chunk_size:
+                time.sleep(0.1)
+                more_data = self._file.read(chunk_size - len(chunk))
+                if more_data:
+                    chunk += more_data
+                elif not self.writing:
+                    break
+            if chunk:
+                yield chunk
+            else:
+                break
+        self._file.close()
+        os.remove(self._filepath)
+
+    def iter_lines(self, chunk_size=512, delimiter=None):
+        pending = None
+
+        for chunk in self.iter_content(chunk_size=chunk_size):
+
+            chunk = chunk.decode("utf8")
+            if pending is not None:
+                chunk = pending + chunk
+
+            if delimiter:
+                lines = chunk.split(delimiter)
+            else:
+                lines = chunk.splitlines()
+
+            if lines and lines[-1] and chunk and lines[-1][-1] == chunk[-1]:
+                pending = lines.pop()
+            else:
+                pending = None
+
+            yield from lines
+
+        if pending is not None:
+            yield pending
+
+
+def build_response(res: Union[dict, list], res_cookies: RequestsCookieJar, filepath=None) -> Response:
     """Builds a Response object """
     response = Response()
     # Add target / url
@@ -176,4 +237,5 @@ def build_response(res: Union[dict, list], res_cookies: RequestsCookieJar) -> Re
     response.text = res["body"]
     # Add response content (bytes)
     response._content = res["body"].encode()
+    response._filepath = filepath
     return response

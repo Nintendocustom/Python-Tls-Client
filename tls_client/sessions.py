@@ -1,5 +1,7 @@
 import base64
 import ctypes
+import os
+import threading
 import urllib.parse
 import uuid
 from json import dumps, loads
@@ -12,6 +14,34 @@ from .exceptions import TLSClientExeption
 from .response import Response, build_response
 from .settings import ClientIdentifiers
 from .structures import CaseInsensitiveDict
+
+
+class StoppableThread(threading.Thread):
+    def __init__(self, main_request, target, daemon=True, **kwargs):
+        super(StoppableThread, self).__init__()
+        self._stop_event = threading.Event()
+        self.main_request = main_request
+        self.target = target
+        self.kwargs = kwargs
+        self.daemon = daemon
+
+    def stop(self):
+        self._stop_event.set()
+        self.on_stop()
+
+    def stopped(self):
+        return self._stop_event.is_set()
+
+    def run(self):
+        self.target(**self.kwargs)
+        self.on_done()  # Call a method when the thread is done
+
+    def on_stop(self):
+        self.main_request.writing = False
+        os.remove(self.main_request._filepath)
+
+    def on_done(self):
+        self.main_request.writing = False
 
 
 class Session:
@@ -36,6 +66,7 @@ class Session:
                  catch_panics: Optional = False,
                  debug: Optional = False,
                  certificate_pinning: Optional[Dict[str, List[str]]] = None,
+                 disable_ipv6: Optional = False,
                  ) -> None:
         self._session_id = str(uuid.uuid4())
         # --- Standard Settings ----------------------------------------------------------------------------------------
@@ -273,6 +304,7 @@ class Session:
         # avoid the tls client to print the whole stacktrace when a panic (critical go error) happens
         self.catch_panics = catch_panics
 
+        self.disable_ipv6 = disable_ipv6
         # debugging
         self.debug = debug
 
@@ -313,6 +345,8 @@ class Session:
             timeout: Optional[int] = None,
             proxy: Optional[dict] = None,  # Optional[dict[str, str]]
             proxies: Optional[dict] = None,
+            stream: Optional[bool] = False,
+            chunk_size: Optional[int] = 1024,  # 1 KiB
     ) -> Response:
         # --- URL ------------------------------------------------------------------------------------------------------
         # Prepare URL - add params to url
@@ -387,6 +421,9 @@ class Session:
         # --- Request --------------------------------------------------------------------------------------------------
         is_byte_request = isinstance(request_body, (bytes, bytearray))
         request_payload = {
+            "DisableIPV6": self.disable_ipv6,
+            # "IsByteResponse": False,
+            "StreamOutputBlockSize": chunk_size,  # KiB
             "sessionId": self._session_id,
             "followRedirects": allow_redirects,
             "forceHttp1": self.force_http1,
@@ -404,6 +441,8 @@ class Session:
             "requestCookies": request_cookies,
             "timeoutSeconds": timeout,
         }
+        if stream and method != "HEAD":
+            request_payload.update({"StreamOutputPath": os.path.join(os.getcwd(), self._session_id)})
         if certificate_pinning:
             request_payload["certificatePinningHosts"] = certificate_pinning
         if self.client_identifier is None:
@@ -447,10 +486,26 @@ class Session:
             response_headers=response_object["headers"]
         )
         # build response class
+        if stream:
+            return build_response(response_object, response_cookie_jar, os.path.join(os.getcwd(), self._session_id))
         return build_response(response_object, response_cookie_jar)
 
     def get(self, url: str, **kwargs: Any) -> Response:
         """Sends a GET request"""
+        if kwargs.get("stream", False):
+            d = self.head(url, **kwargs)
+            T = StoppableThread(
+                main_request=d,
+                target=self.execute_request,
+                daemon=True,
+                method="GET",
+                url=url,
+                allow_redirects=True,
+                **kwargs
+            )
+
+            T.start()
+            return d
         return self.execute_request(method="GET", url=url, allow_redirects=True, **kwargs)
 
     def options(self, url: str, **kwargs: Any) -> Response:
