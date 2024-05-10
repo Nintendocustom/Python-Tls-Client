@@ -1,15 +1,14 @@
 #!/usr/bin/env python
-from setuptools import setup, find_packages
-from codecs import open
 import glob
-import sys
 import os
+from codecs import open
 
+from setuptools import find_packages, setup
 
 data_files = []
 directories = glob.glob('tls_client/dependencies/')
 for directory in directories:
-    files = glob.glob(directory+'*')
+    files = glob.glob(directory + '*')
     data_files.append(('tls_client/dependencies', files))
 
 about = {}

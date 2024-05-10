@@ -1,8 +1,7 @@
-from sys import platform
-from platform import machine
 import ctypes
 import os
-
+from platform import machine
+from sys import platform
 
 if platform == 'darwin':
     file_ext = '-arm64.dylib' if machine() == "arm64" else '-x86.dylib'
