@@ -11,5 +11,8 @@
 # Links:
 # tls-client: https://github.com/bogdanfinn/tls-client
 # requests: https://github.com/psf/requests
+from .update_lib import update_lib
+
+update_lib()
 
 from .sessions import Session
