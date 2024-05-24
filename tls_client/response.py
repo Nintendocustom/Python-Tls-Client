@@ -5,6 +5,11 @@ from typing import Union
 
 from requests import HTTPError
 
+try:
+    import chardet
+except ImportError:
+    import charset_normalizer as chardet
+
 from .cookies import RequestsCookieJar, cookiejar_from_dict
 from .structures import CaseInsensitiveDict
 
@@ -104,6 +109,19 @@ class Response:
     def __repr__(self):
         return f"<Response [{self.status_code}]>"
 
+    def __bool__(self):
+        """Returns True if :attr:`status_code` is less than 400.
+
+        This attribute checks if the status code of the response is between
+        400 and 600 to see if there was a client error or a server error. If
+        the status code, is between 200 and 400, this will return True. This
+        is **not** a check to see if the response code is ``200 OK``.
+        """
+        return self.ok
+
+    def __iter__(self):
+        return self.iter_content(128)
+
     @property
     def headers(self):
         return self._headers
@@ -124,6 +142,20 @@ class Response:
     @property
     def ok(self):
         return self.status_code < 400
+
+    @property
+    def is_redirect(self):
+        return "location" in self.headers and self.status_code in (301, 302, 303, 307, 308)
+
+    @property
+    def is_permanent_redirect(self):
+        """True if this Response one of the permanent versions of redirect."""
+        return "location" in self.headers and self.status_code in (301, 308)
+
+    @property
+    def apparent_encoding(self):
+        """The apparent encoding, provided by the charset_normalizer or chardet libraries."""
+        return chardet.detect(self.content)["encoding"]
 
     def json(self, **kwargs):
         """parse response body to json (dict/list)"""
@@ -190,7 +222,7 @@ class Response:
         self._file.close()
         os.remove(self._filepath)
 
-    def iter_lines(self, chunk_size=512, delimiter=None):
+    def iter_lines(self, chunk_size=128, delimiter=None):
         pending = None
 
         for chunk in self.iter_content(chunk_size=chunk_size):
