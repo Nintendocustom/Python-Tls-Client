@@ -8,7 +8,7 @@ from json import dumps, loads
 from typing import Any, Dict, List, Optional, Union
 
 from .__version__ import __version__
-from .cffi import destroySession, freeMemory, request
+from .cffi import addCookiesToSession, destroySession, freeMemory, getCookiesFromSession, request
 from .cookies import cookiejar_from_dict, extract_cookies_to_jar, merge_cookies
 from .exceptions import TLSClientExeption
 from .response import Response, build_response
@@ -61,13 +61,14 @@ class Session:
                  priority_frames: Optional[list] = None,
                  header_order: Optional[List[str]] = None,
                  header_priority: Optional[List[str]] = None,
-                 random_tls_extension_order: Optional = False,
-                 force_http1: Optional = False,
-                 catch_panics: Optional = False,
-                 debug: Optional = False,
+                 random_tls_extension_order: bool = False,
+                 force_http1: bool = False,
+                 catch_panics: bool = False,
+                 debug: bool = False,
                  certificate_pinning: Optional[Dict[str, List[str]]] = None,
-                 disable_ipv6: Optional = False,
+                 disable_ipv6: bool = False,
                  ) -> None:
+
         self._session_id = str(uuid.uuid4())
         # --- Standard Settings ----------------------------------------------------------------------------------------
 
@@ -304,6 +305,7 @@ class Session:
         # avoid the tls client to print the whole stacktrace when a panic (critical go error) happens
         self.catch_panics = catch_panics
 
+        # disable ipv6
         self.disable_ipv6 = disable_ipv6
         # debugging
         self.debug = debug
@@ -320,110 +322,112 @@ class Session:
         }
 
         destroy_session_response = destroySession(dumps(destroy_session_payload).encode('utf-8'))
-        # we dereference the pointer to a byte array
         destroy_session_response_bytes = ctypes.string_at(destroy_session_response)
-        # convert our byte array to a string (tls client returns json)
         destroy_session_response_string = destroy_session_response_bytes.decode('utf-8')
-        # convert response string to json
         destroy_session_response_object = loads(destroy_session_response_string)
-
         freeMemory(destroy_session_response_object['id'].encode('utf-8'))
-
+        # todo add exception if success is False
         return destroy_session_response_string
 
-    def execute_request(
-            self,
-            method: str,
-            url: str,
-            params: Optional[dict] = None,  # Optional[dict[str, str]]
-            data: Optional[Union[str, dict]] = None,
-            headers: Optional[dict] = None,  # Optional[dict[str, str]]
-            cookies: Optional[dict] = None,  # Optional[dict[str, str]]
-            json: Optional[dict] = None,  # Optional[dict]
-            allow_redirects: Optional[bool] = False,
-            insecure_skip_verify: Optional[bool] = False,
-            timeout: Optional[int] = None,
-            proxy: Optional[dict] = None,  # Optional[dict[str, str]]
-            proxies: Optional[dict] = None,
-            stream: Optional[bool] = False,
-            chunk_size: Optional[int] = 1024,  # 1 KiB
-    ) -> Response:
-        # --- URL ------------------------------------------------------------------------------------------------------
-        # Prepare URL - add params to url
-        if params is not None:
-            url = f"{url}?{urllib.parse.urlencode(params, doseq=True)}"
+    def get_cookies_from_session(self, url: str) -> List[Dict[str, str]]:
+        cookie_payload = {
+            "sessionId": self._session_id,
+            "url": url,
+        }
+        cookie_response = getCookiesFromSession(dumps(cookie_payload).encode('utf-8'))
+        cookie_response_bytes = ctypes.string_at(cookie_response)
+        cookie_response_string = cookie_response_bytes.decode('utf-8')
+        cookie_response_object = loads(cookie_response_string)
+        return cookie_response_object["cookies"]
 
-        # --- Request Body ---------------------------------------------------------------------------------------------
-        # Prepare request body - build request body
-        # Data has priority. JSON is only used if data is None.
+    def add_cookies_to_session(self, url: str, cookies: List[Dict[str, str]]) -> None:
+        # https://bogdanfinn.gitbook.io/open-source-oasis/shared-library/payload#cookie-input
+        cookies_payload = {
+            "cookies": cookies,
+            "sessionId": self._session_id,
+            "url": url,
+        }
+        # todo add exception, no session
+        add_cookies_to_session_response = addCookiesToSession(dumps(cookies_payload).encode('utf-8'))
+        add_cookies_bytes = ctypes.string_at(add_cookies_to_session_response)
+        add_cookies_string = add_cookies_bytes.decode('utf-8')
+        add_cookies_object = loads(add_cookies_string)
+        print(add_cookies_object)
+
+    @staticmethod
+    def _prepare_url(url: str, params: Optional[Dict] = None) -> str:
+        if params is not None:
+            return f"{url}?{urllib.parse.urlencode(params, doseq=True)}"
+        return url
+
+    @staticmethod
+    def _prepare_request_body(data: Optional[Union[str, dict]] = None,
+                              json: Optional[Dict] = None
+                              ) -> (Optional[str], Optional[str]):
         if data is None and json is not None:
             if type(json) in [dict, list]:
                 json = dumps(json)
-            request_body = json
-            content_type = "application/json"
+            return json, "application/json"
         elif data is not None and type(data) not in [str, bytes]:
-            request_body = urllib.parse.urlencode(data, doseq=True)
-            content_type = "application/x-www-form-urlencoded"
+            return urllib.parse.urlencode(data, doseq=True), "application/x-www-form-urlencoded"
         else:
-            request_body = data
-            content_type = None
-        # set content type if it isn't set
-        if content_type is not None and "content-type" not in self.headers:
-            self.headers["Content-Type"] = content_type
+            return data, None
 
-        # --- Headers --------------------------------------------------------------------------------------------------
+    def _merge_headers(self, headers: Optional[Dict] = None) -> CaseInsensitiveDict:
         if self.headers is None:
-            headers = CaseInsensitiveDict(headers)
+            return CaseInsensitiveDict(headers)
         elif headers is None:
-            headers = self.headers
+            return self.headers.copy()
         else:
-            merged_headers = CaseInsensitiveDict(self.headers)
+            merged_headers = self.headers.copy()
             merged_headers.update(headers)
+            return CaseInsensitiveDict(merged_headers)
 
-            # Remove items, where the key or value is set to None.
-            none_keys = [k for (k, v) in merged_headers.items() if v is None or k is None]
-            for key in none_keys:
-                del merged_headers[key]
-
-            headers = merged_headers
-
-        # --- Cookies --------------------------------------------------------------------------------------------------
+    def _prepare_cookies(self, cookies: Optional[Dict] = None) -> List[Dict[str, str]]:
         cookies = cookies or {}
-        # Merge with session cookies
         cookies = merge_cookies(self.cookies, cookies)
-        # turn cookie jar into dict
-        # in the cookie value the " gets removed, because the fhttp library in golang doesn't accept the character
-        request_cookies = [
-            {'domain': c.domain, 'expires': c.expires, 'name': c.name, 'path': c.path, 'value': c.value.replace('"', "")}
+        return [
+            {
+                'domain': c.domain,
+                'expires': c.expires,
+                'name': c.name,
+                'path': c.path,
+                'value': c.value.replace('"', "")
+            }
             for c in cookies
         ]
 
-        # --- Proxy ----------------------------------------------------------------------------------------------------
+    def _get_proxy(self, proxy: Optional[Dict] = None, proxies: Optional[Dict] = None) -> str:
         proxy = proxy or proxies or self.proxies
 
-        if type(proxy) is dict and "http" in proxy:
-            proxy = proxy["http"]
-        elif type(proxy) is str:
-            proxy = proxy
+        if isinstance(proxy, dict) and "http" in proxy:
+            return proxy["http"]
+        elif isinstance(proxy, str):
+            return proxy
         else:
-            proxy = ""
+            return ""
 
-        # --- Timeout --------------------------------------------------------------------------------------------------
-        # maximum time to wait for a response
+    def _build_request_payload(self,
+                               method: str,
+                               url: str,
+                               headers: CaseInsensitiveDict,
+                               request_body: Optional[str],
+                               request_cookies: List[Dict],
+                               is_byte_request: bool,
+                               timeout: int,
+                               proxy: str,
+                               allow_redirects: bool,
+                               verify: bool,
+                               stream: bool,
+                               chunk_size: int,
+                               certificate_pinning: Optional[Dict[str, List[str]]] = None
+                               ) -> dict:
 
-        timeout = timeout or self.timeout
-
-        # --- Certificate pinning --------------------------------------------------------------------------------------
-        # pins a certificate so that it restricts which certificates are considered valid
-
-        certificate_pinning = self.certificate_pinning
-
-        # --- Request --------------------------------------------------------------------------------------------------
-        is_byte_request = isinstance(request_body, (bytes, bytearray))
+        # todo replace followRedirect with always being False and Python handling the redirects instead
         request_payload = {
+            "WithDefaultHeaders": False,
             "DisableIPV6": self.disable_ipv6,
-            # "IsByteResponse": False,
-            "StreamOutputBlockSize": chunk_size,  # KiB
+            "StreamOutputBlockSize": chunk_size,
             "sessionId": self._session_id,
             "followRedirects": allow_redirects,
             "forceHttp1": self.force_http1,
@@ -431,7 +435,7 @@ class Session:
             "catchPanics": self.catch_panics,
             "headers": dict(headers),
             "headerOrder": self.header_order,
-            "insecureSkipVerify": insecure_skip_verify,
+            "insecureSkipVerify": not verify,
             "isByteRequest": is_byte_request,
             "additionalDecode": self.additional_decode,
             "proxyUrl": proxy,
@@ -441,10 +445,13 @@ class Session:
             "requestCookies": request_cookies,
             "timeoutSeconds": timeout,
         }
+
         if stream and method != "HEAD":
             request_payload.update({"StreamOutputPath": os.path.join(os.getcwd(), self._session_id)})
+
         if certificate_pinning:
             request_payload["certificatePinningHosts"] = certificate_pinning
+
         if self.client_identifier is None:
             request_payload["customTlsClient"] = {
                 "ja3String": self.ja3_string,
@@ -464,28 +471,78 @@ class Session:
             request_payload["tlsClientIdentifier"] = self.client_identifier
             request_payload["withRandomTLSExtensionOrder"] = self.random_tls_extension_order
 
-        # this is a pointer to the response
+        return request_payload
+
+    def execute_request(
+            self,
+            method: str,
+            url: str,
+            params: Optional[Dict] = None,
+            data: Optional[Union[str, dict]] = None,
+            headers: Optional[Dict] = None,
+            cookies: Optional[Dict] = None,
+            json: Optional[Dict] = None,
+            allow_redirects: Optional[bool] = True,
+            verify: Optional[bool] = True,
+            timeout: Optional[int] = None,
+            proxy: Optional[Dict] = None,
+            proxies: Optional[Dict] = None,
+            stream: Optional[bool] = False,
+            chunk_size: Optional[int] = 1024,
+    ) -> Response:
+
+        url = self._prepare_url(url, params)
+
+        request_body, content_type = self._prepare_request_body(data, json)
+
+        headers = self._merge_headers(headers)
+        if content_type is not None:
+            headers["Content-Type"] = content_type
+
+        request_cookies = self._prepare_cookies(cookies)
+
+        proxy = self._get_proxy(proxy, proxies)
+
+        timeout = timeout or self.timeout
+
+        certificate_pinning = self.certificate_pinning
+
+        is_byte_request = isinstance(request_body, (bytes, bytearray))
+
+        request_payload = self._build_request_payload(
+            method=method,
+            url=url,
+            headers=headers,
+            request_body=request_body,
+            request_cookies=request_cookies,
+            is_byte_request=is_byte_request,
+            timeout=timeout,
+            proxy=proxy,
+            allow_redirects=allow_redirects,
+            verify=verify,
+            stream=stream,
+            chunk_size=chunk_size,
+            certificate_pinning=certificate_pinning
+        )
+
+        # Execute the request using the TLS client
         response = request(dumps(request_payload).encode('utf-8'))
-        # dereference the pointer to a byte array
         response_bytes = ctypes.string_at(response)
-        # convert our byte array to a string (tls client returns json)
         response_string = response_bytes.decode('utf-8')
-        # convert response string to json
         response_object = loads(response_string)
-        # free the memory
         freeMemory(response_object['id'].encode('utf-8'))
-        # --- Response -------------------------------------------------------------------------------------------------
-        # Error handling
+
+        # Handle response, split up into new method?
         if response_object["status"] == 0:
             raise TLSClientExeption(response_object["body"])
-        # Set response cookies
+
         response_cookie_jar = extract_cookies_to_jar(
             request_url=url,
             request_headers=headers,
-            cookie_jar=cookies,
+            cookie_jar=self.cookies,
             response_headers=response_object["headers"]
         )
-        # build response class
+
         if stream:
             return build_response(response_object, response_cookie_jar, os.path.join(os.getcwd(), self._session_id))
         return build_response(response_object, response_cookie_jar)
@@ -493,20 +550,19 @@ class Session:
     def get(self, url: str, **kwargs: Any) -> Response:
         """Sends a GET request"""
         if kwargs.get("stream", False):
-            d = self.head(url, **kwargs)
-            T = StoppableThread(
-                main_request=d,
+            head_data = self.head(url, **kwargs)
+            stream_data_thread = StoppableThread(
+                main_request=head_data,
                 target=self.execute_request,
                 daemon=True,
                 method="GET",
                 url=url,
-                allow_redirects=True,
                 **kwargs
             )
 
-            T.start()
-            return d
-        return self.execute_request(method="GET", url=url, allow_redirects=True, **kwargs)
+            stream_data_thread.start()
+            return head_data
+        return self.execute_request(method="GET", url=url, **kwargs)
 
     def options(self, url: str, **kwargs: Any) -> Response:
         """Sends a OPTIONS request"""
@@ -514,10 +570,27 @@ class Session:
 
     def head(self, url: str, **kwargs: Any) -> Response:
         """Sends a HEAD request"""
+        kwargs.setdefault("allow_redirects", False)
         return self.execute_request(method="HEAD", url=url, **kwargs)
 
     def post(self, url: str, data: Optional[Union[str, dict]] = None, json: Optional[dict] = None, **kwargs: Any) -> Response:
         """Sends a POST request"""
+        if kwargs.get("stream", False):
+            # todo head for post request doesn't always work correctly
+            head_data = self.head(url, allow_redircts=True, **kwargs)
+            stream_data_thread = StoppableThread(
+                main_request=head_data,
+                target=self.execute_request,
+                daemon=True,
+                method="POST",
+                url=url,
+                data=data,
+                json=json,
+                **kwargs
+            )
+
+            stream_data_thread.start()
+            return head_data
         return self.execute_request(method="POST", url=url, data=data, json=json, **kwargs)
 
     def put(self, url: str, data: Optional[Union[str, dict]] = None, json: Optional[dict] = None, **kwargs: Any) -> Response:

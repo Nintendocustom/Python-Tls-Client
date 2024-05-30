@@ -1,6 +1,7 @@
-import requests
 import os
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
+import requests
 
 GITHUB_API_URL = "https://api.github.com/repos/bogdanfinn/tls-client/releases/latest"
 LOCAL_VERSION_FILE = os.path.join(os.path.dirname(__file__), "dependencies/version.txt")
