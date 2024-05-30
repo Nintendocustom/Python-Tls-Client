@@ -2,9 +2,12 @@ import base64
 import ctypes
 import os
 import threading
+import time
 import urllib.parse
 import uuid
+from datetime import timedelta
 from json import dumps, loads
+from sys import platform
 from typing import Any, Dict, List, Optional, Union
 
 from .__version__ import __version__
@@ -14,6 +17,11 @@ from .exceptions import TLSClientExeption
 from .response import Response, build_response
 from .settings import ClientIdentifiers
 from .structures import CaseInsensitiveDict
+
+if platform == "win32":
+    preferred_clock = time.perf_counter
+else:
+    preferred_clock = time.time
 
 
 class StoppableThread(threading.Thread):
@@ -411,7 +419,7 @@ class Session:
                                method: str,
                                url: str,
                                headers: CaseInsensitiveDict,
-                               request_body: Optional[str],
+                               request_body: Optional[Union[str, bytes, bytearray]],
                                request_cookies: List[Dict],
                                is_byte_request: bool,
                                timeout: int,
@@ -424,26 +432,41 @@ class Session:
                                ) -> dict:
 
         # todo replace followRedirect with always being False and Python handling the redirects instead
+        # https://bogdanfinn.gitbook.io/open-source-oasis/shared-library/payload
         request_payload = {
-            "WithDefaultHeaders": False,
-            "DisableIPV6": self.disable_ipv6,
-            "StreamOutputBlockSize": chunk_size,
-            "sessionId": self._session_id,
+            "additionalDecode": self.additional_decode,
+            "catchPanics": self.catch_panics,
+            # "certificatePinningHosts": None,
+            # "customTlsClient": None,
+            # "transportOptions": None,
+            # "defaultHeaders": None,
+            "disableIPV6": self.disable_ipv6,
             "followRedirects": allow_redirects,
             "forceHttp1": self.force_http1,
-            "withDebug": self.debug,
-            "catchPanics": self.catch_panics,
-            "headers": dict(headers),
             "headerOrder": self.header_order,
+            "headers": dict(headers),
             "insecureSkipVerify": not verify,
             "isByteRequest": is_byte_request,
-            "additionalDecode": self.additional_decode,
+            "isByteResponse": False,
+            "isRotatingProxy": False,
+            "localAddress": None,
             "proxyUrl": proxy,
-            "requestUrl": url,
-            "requestMethod": method,
             "requestBody": base64.b64encode(request_body).decode() if is_byte_request else request_body,
             "requestCookies": request_cookies,
+            "requestMethod": method,
+            "requestUrl": url,
+            "serverNameOverwrite": None,
+            "sessionId": self._session_id,
+            "streamOutputBlockSize": chunk_size,
+            "streamOutputEOFSymbol": None,
+            # "streamOutputPath": None,
+            # "timeoutMilliseconds": 0,
             "timeoutSeconds": timeout,
+            # "tlsClientIdentifier": "",
+            "withDebug": self.debug,
+            "withDefaultCookieJar": False,
+            "withoutCookieJar": False,
+            # "withRandomTLSExtensionOrder": False,
         }
 
         if stream and method != "HEAD":
@@ -452,20 +475,37 @@ class Session:
         if certificate_pinning:
             request_payload["certificatePinningHosts"] = certificate_pinning
 
+        if False:
+            request_payload["transportOptions"] = {
+                "disableCompression": False,
+                "disableKeepAlives": False,
+                "idleConnTimeout": 0,
+                "maxConnsPerHost": 0,
+                "maxIdleConns": 0,
+                "maxIdleConnsPerHost": 0,
+                "maxResponseHeaderBytes": 0,
+                "readBufferSize": 0,
+                "writeBufferSize": 0,
+            }
+
         if self.client_identifier is None:
             request_payload["customTlsClient"] = {
-                "ja3String": self.ja3_string,
+                "ECHCandidateCipherSuites": None,
+                "ECHCandidatePayloads": None,
+                "alpnProtocols": None,
+                "alpsProtocols": None,
+                "certCompressionAlgo": self.cert_compression_algo,
+                "connectionFlow": self.connection_flow,
                 "h2Settings": self.h2_settings,
                 "h2SettingsOrder": self.h2_settings_order,
-                "pseudoHeaderOrder": self.pseudo_header_order,
-                "connectionFlow": self.connection_flow,
-                "priorityFrames": self.priority_frames,
                 "headerPriority": self.header_priority,
-                "certCompressionAlgo": self.cert_compression_algo,
-                "supportedVersions": self.supported_versions,
-                "supportedSignatureAlgorithms": self.supported_signature_algorithms,
-                "supportedDelegatedCredentialsAlgorithms": self.supported_delegated_credentials_algorithms,
+                "ja3String": self.ja3_string,
                 "keyShareCurves": self.key_share_curves,
+                "priorityFrames": self.priority_frames,
+                "pseudoHeaderOrder": self.pseudo_header_order,
+                "supportedDelegatedCredentialsAlgorithms": self.supported_delegated_credentials_algorithms,
+                "supportedSignatureAlgorithms": self.supported_signature_algorithms,
+                "supportedVersions": self.supported_versions,
             }
         else:
             request_payload["tlsClientIdentifier"] = self.client_identifier
@@ -509,6 +549,8 @@ class Session:
 
         is_byte_request = isinstance(request_body, (bytes, bytearray))
 
+        start = preferred_clock()
+
         request_payload = self._build_request_payload(
             method=method,
             url=url,
@@ -532,6 +574,8 @@ class Session:
         response_object = loads(response_string)
         freeMemory(response_object['id'].encode('utf-8'))
 
+        elapsed = preferred_clock() - start
+
         # Handle response, split up into new method?
         if response_object["status"] == 0:
             raise TLSClientExeption(response_object["body"])
@@ -544,8 +588,11 @@ class Session:
         )
 
         if stream:
-            return build_response(response_object, response_cookie_jar, os.path.join(os.getcwd(), self._session_id))
-        return build_response(response_object, response_cookie_jar)
+            response = build_response(response_object, response_cookie_jar, os.path.join(os.getcwd(), self._session_id))
+        else:
+            response = build_response(response_object, response_cookie_jar)
+        response.elapsed = timedelta(seconds=elapsed)
+        return response
 
     def get(self, url: str, **kwargs: Any) -> Response:
         """Sends a GET request"""

@@ -34,6 +34,7 @@ class Response:
         # A CookieJar of Cookies the server sent back.
         self.cookies = cookiejar_from_dict({})
 
+        self.elapsed = None
         self._content = False
 
         self.writing = True
@@ -102,6 +103,8 @@ class Response:
             510: 'Not Extended',
             511: 'Network Authentication Required'
         }
+
+        # todo encoding, history, links, next, request
 
     def __enter__(self):
         return self
