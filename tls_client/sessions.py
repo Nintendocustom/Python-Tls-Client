@@ -9,6 +9,7 @@ from datetime import timedelta
 from json import dumps, loads
 from sys import platform
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urljoin
 
 from .__version__ import __version__
 from .cffi import addCookiesToSession, destroySession, freeMemory, getCookiesFromSession, request
@@ -76,6 +77,8 @@ class Session:
                  certificate_pinning: Optional[Dict[str, List[str]]] = None,
                  disable_ipv6: bool = False,
                  ) -> None:
+
+        self.MAX_REDIRECTS: int = 30
 
         self._session_id = str(uuid.uuid4())
         # --- Standard Settings ----------------------------------------------------------------------------------------
@@ -424,7 +427,6 @@ class Session:
                                is_byte_request: bool,
                                timeout: int,
                                proxy: str,
-                               allow_redirects: bool,
                                verify: bool,
                                stream: bool,
                                chunk_size: int,
@@ -441,7 +443,7 @@ class Session:
             # "transportOptions": None,
             # "defaultHeaders": None,
             "disableIPV6": self.disable_ipv6,
-            "followRedirects": allow_redirects,
+            "followRedirects": False,
             "forceHttp1": self.force_http1,
             "headerOrder": self.header_order,
             "headers": dict(headers),
@@ -551,48 +553,91 @@ class Session:
 
         start = preferred_clock()
 
-        request_payload = self._build_request_payload(
-            method=method,
-            url=url,
-            headers=headers,
-            request_body=request_body,
-            request_cookies=request_cookies,
-            is_byte_request=is_byte_request,
-            timeout=timeout,
-            proxy=proxy,
-            allow_redirects=allow_redirects,
-            verify=verify,
-            stream=stream,
-            chunk_size=chunk_size,
-            certificate_pinning=certificate_pinning
-        )
+        redirect = 0
+        while True:
+            request_payload = self._build_request_payload(
+                method=method,
+                url=url,
+                headers=headers,
+                request_body=request_body,
+                request_cookies=request_cookies,
+                is_byte_request=is_byte_request,
+                timeout=timeout,
+                proxy=proxy,
+                verify=verify,
+                stream=stream,
+                chunk_size=chunk_size,
+                certificate_pinning=certificate_pinning
+            )
 
-        # Execute the request using the TLS client
-        response = request(dumps(request_payload).encode('utf-8'))
-        response_bytes = ctypes.string_at(response)
-        response_string = response_bytes.decode('utf-8')
-        response_object = loads(response_string)
-        freeMemory(response_object['id'].encode('utf-8'))
+            # Execute the request using the TLS client
+            response = request(dumps(request_payload).encode('utf-8'))
+            response_bytes = ctypes.string_at(response)
+            response_string = response_bytes.decode('utf-8')
+            response_object = loads(response_string)
+            freeMemory(response_object['id'].encode('utf-8'))
 
-        elapsed = preferred_clock() - start
+            elapsed = preferred_clock() - start
 
-        # Handle response, split up into new method?
-        if response_object["status"] == 0:
-            raise TLSClientExeption(response_object["body"])
+            # Handle response, split up into new method?
+            if response_object["status"] == 0:
+                raise TLSClientExeption(response_object["body"])
 
-        response_cookie_jar = extract_cookies_to_jar(
-            request_url=url,
-            request_headers=headers,
-            cookie_jar=self.cookies,
-            response_headers=response_object["headers"]
-        )
+            response_cookie_jar = extract_cookies_to_jar(
+                request_url=url,
+                request_headers=headers,
+                cookie_jar=self.cookies,
+                response_headers=response_object["headers"]
+            )
 
-        if stream:
-            response = build_response(response_object, response_cookie_jar, os.path.join(os.getcwd(), self._session_id))
-        else:
-            response = build_response(response_object, response_cookie_jar)
-        response.elapsed = timedelta(seconds=elapsed)
-        return response
+            if stream:
+                filepath = os.path.join(os.getcwd(), self._session_id)
+                response = build_response(response_object, response_cookie_jar, filepath)
+            else:
+                response = build_response(response_object, response_cookie_jar)
+            response.elapsed = timedelta(seconds=elapsed)
+
+            if not allow_redirects or not response.is_redirect:
+                return response
+
+            redirect += 1
+
+            if redirect > self.MAX_REDIRECTS:
+                raise TLSClientExeption(f"Max redirects ({self.MAX_REDIRECTS}) exceeded")
+
+            url = self._rebuild_url(url, response)
+            method = self._rebuild_methods(method, response)
+
+            if response.status_code not in (307, 308):
+                request_body = None
+                headers = self._rebuild_headers(headers)
+
+    @staticmethod
+    def _rebuild_methods(method: str, response: Response) -> str:
+        if response.status_code == 303 and method != "HEAD":
+            method = "GET"
+        if response.status_code == 302 and method != "HEAD":
+            method = "GET"
+        if response.status_code == 301 and method != "POST":
+            method = "GET"
+
+        return method
+
+    @staticmethod
+    def _rebuild_url(url: str, response: Response) -> Optional[str]:
+        url_redirect = response.headers.get("Location", None)
+        if not url_redirect:
+            return None
+        if url_redirect.startswith("/"):
+            url = urljoin(url, url_redirect)
+        return url
+
+    @staticmethod
+    def _rebuild_headers(headers: CaseInsensitiveDict) -> CaseInsensitiveDict:
+        purged_headers = ("Content-Length", "Content-Type", "Transfer-Encoding")
+        for header in purged_headers:
+            headers.pop(header, None)
+        return headers
 
     def get(self, url: str, **kwargs: Any) -> Response:
         """Sends a GET request"""
