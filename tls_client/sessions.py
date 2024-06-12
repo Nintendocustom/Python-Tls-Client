@@ -449,7 +449,7 @@ class Session:
             "headers": dict(headers),
             "insecureSkipVerify": not verify,
             "isByteRequest": is_byte_request,
-            "isByteResponse": False,
+            "isByteResponse": True,
             "isRotatingProxy": False,
             "localAddress": None,
             "proxyUrl": proxy,

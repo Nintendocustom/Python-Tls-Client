@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import time
@@ -25,8 +26,7 @@ class Response:
         # Integer Code of responded HTTP Status, e.g. 404 or 200.
         self._status_code = None
 
-        # String of responded HTTP Body.
-        self.text = None
+        self.encoding = None
 
         # Case-insensitive Dictionary of Response Headers.
         self._headers = CaseInsensitiveDict()
@@ -104,7 +104,7 @@ class Response:
             511: 'Network Authentication Required'
         }
 
-        # todo encoding, history, links, next, request
+        # todo history, links, next, request
 
     def __enter__(self):
         return self
@@ -158,7 +158,8 @@ class Response:
     @property
     def apparent_encoding(self):
         """The apparent encoding, provided by the charset_normalizer or chardet libraries."""
-        return chardet.detect(self.content)["encoding"]
+        encoding = chardet.detect(self.content)["encoding"]
+        return encoding if encoding else "utf-8"
 
     def json(self, **kwargs):
         """parse response body to json (dict/list)"""
@@ -178,6 +179,22 @@ class Response:
                 self._content = b"".join(self.iter_content(10 * 1024)) or b""
         self._content_consumed = True
         return self._content
+
+    @property
+    def text(self):
+        encoding = self.encoding
+
+        if not self.content:
+            return ""
+        if encoding is None:
+            encoding = self.apparent_encoding
+
+        try:
+            content = str(self.content, encoding, errors="replace")
+        except (LookupError, TypeError):
+            content = str(self.content, errors="replace")
+
+        return content
 
     def raise_for_status(self):
         """Raises :class:`HTTPError`, if one occurred."""
@@ -250,6 +267,43 @@ class Response:
             yield pending
 
 
+def _parse_content_type_header(header):
+    tokens = header.split(";")
+    content_type, params = tokens[0].strip(), tokens[1:]
+    params_dict = {}
+    items_to_strip = "\"' "
+
+    for param in params:
+        param = param.strip()
+        if param:
+            key, value = param, True
+            index_of_equals = param.find("=")
+            if index_of_equals != -1:
+                key = param[:index_of_equals].strip(items_to_strip)
+                value = param[index_of_equals + 1:].strip(items_to_strip)
+            params_dict[key.lower()] = value
+    return content_type, params_dict
+
+
+def get_encoding_from_headers(headers):
+    content_type = headers.get("content-type")
+
+    if not content_type:
+        return None
+
+    content_type, params = _parse_content_type_header(content_type)
+
+    if "charset" in params:
+        return params["charset"].strip("'\"")
+
+    if "text" in content_type:
+        return "ISO-8859-1"
+
+    if "application/json" in content_type:
+        # Assume UTF-8 based on RFC 4627: https://www.ietf.org/rfc/rfc4627.txt since the charset was unset
+        return "utf-8"
+
+
 def build_response(res: Union[dict, list], res_cookies: RequestsCookieJar, filepath=None) -> Response:
     """Builds a Response object """
     response = Response()
@@ -265,12 +319,12 @@ def build_response(res: Union[dict, list], res_cookies: RequestsCookieJar, filep
                 response_headers[header_key] = header_value[0]
             else:
                 response_headers[header_key] = header_value
+
+    response.encoding = get_encoding_from_headers(response_headers)
     response.headers = response_headers
     # Add cookies
     response.cookies = res_cookies
-    # Add response body
-    response.text = res["body"]
     # Add response content (bytes)
-    response._content = res["body"].encode()
+    response._content = base64.b64decode(res["body"].split(",", 1)[1])
     response._filepath = filepath
     return response
