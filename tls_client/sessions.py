@@ -327,6 +327,9 @@ class Session:
     def __exit__(self, *args):
         self.close()
 
+    def __del__(self):
+        self.close()
+
     def close(self) -> str:
         destroy_session_payload = {
             "sessionId": self._session_id
