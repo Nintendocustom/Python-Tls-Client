@@ -56,21 +56,22 @@ def update_lib() -> None:
     latest_version = latest_release["tag_name"]
     local_version = read_local_version()
 
-    if latest_version != local_version:
-        print(f"New version found: {latest_version}. Updating...")
+    if latest_version == local_version:
+        return
+    print(f"New version found: {latest_version}. Updating...")
 
-        assets = latest_release["assets"]
-        for asset in assets:
-            asset_name = asset["name"].rsplit("-", 1)[0]
-            if asset_name in dependency_filenames:
-                download_url = asset["browser_download_url"]
-                dest_filename = dependency_filenames[asset_name]
-                dest_path = os.path.join(DOWNLOAD_DIR, dest_filename)
-                download_file(session, download_url, dest_path)
-                print(f"Downloaded {dest_filename} from {download_url}")
+    assets = latest_release["assets"]
+    for asset in assets:
+        asset_name = asset["name"].rsplit("-", 1)[0]
+        if asset_name in dependency_filenames:
+            download_url = asset["browser_download_url"]
+            dest_filename = dependency_filenames[asset_name]
+            dest_path = os.path.join(DOWNLOAD_DIR, dest_filename)
+            download_file(session, download_url, dest_path)
+            print(f"Downloaded {dest_filename} from {download_url}")
 
-        save_local_version(latest_version)
-        print(f"Updated to version {latest_version}")
+    save_local_version(latest_version)
+    print(f"Updated to version {latest_version}")
 
 
 if __name__ == "__main__":

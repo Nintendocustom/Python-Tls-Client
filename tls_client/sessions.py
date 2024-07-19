@@ -25,32 +25,47 @@ else:
     preferred_clock = time.time
 
 
-class StoppableThread(threading.Thread):
-    def __init__(self, main_request, target, daemon=True, **kwargs):
-        super(StoppableThread, self).__init__()
+class SteamThread(threading.Thread):
+    def __init__(self, main_request, target, **kwargs):
+        super(SteamThread, self).__init__(daemon=True)
         self._stop_event = threading.Event()
         self.main_request = main_request
         self.target = target
         self.kwargs = kwargs
-        self.daemon = daemon
 
-    def stop(self):
+    def stop(self) -> None:
         self._stop_event.set()
         self.on_stop()
 
-    def stopped(self):
+    def is_stopped(self) -> bool:
         return self._stop_event.is_set()
 
-    def run(self):
-        self.target(**self.kwargs)
-        self.on_done()  # Call a method when the thread is done
+    def run(self) -> None:
+        try:
+            self.target(**self.kwargs)
+        except Exception as e:
+            self.on_error(e)
+        finally:
+            self.on_done()
 
-    def on_stop(self):
+    def on_stop(self) -> None:
         self.main_request.writing = False
-        os.remove(self.main_request._filepath)
+        self._remove_file()
 
-    def on_done(self):
+    def on_done(self) -> None:
         self.main_request.writing = False
+
+    def on_error(self, error: Exception) -> None:
+        self.main_request.writing = False
+        print(f"An error occurred: {error}")
+
+    def _remove_file(self) -> None:
+        filepath = getattr(self.main_request, '_filepath', None)
+        if filepath and os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except OSError as e:
+                print(f"Error removing file {filepath}: {e}")
 
 
 class Session:
@@ -646,10 +661,9 @@ class Session:
         """Sends a GET request"""
         if kwargs.get("stream", False):
             head_data = self.head(url, **kwargs)
-            stream_data_thread = StoppableThread(
+            stream_data_thread = SteamThread(
                 main_request=head_data,
                 target=self.execute_request,
-                daemon=True,
                 method="GET",
                 url=url,
                 **kwargs
@@ -673,10 +687,9 @@ class Session:
         if kwargs.get("stream", False):
             # todo head for post request doesn't always work correctly
             head_data = self.head(url, allow_redircts=True, **kwargs)
-            stream_data_thread = StoppableThread(
+            stream_data_thread = SteamThread(
                 main_request=head_data,
                 target=self.execute_request,
-                daemon=True,
                 method="POST",
                 url=url,
                 data=data,
