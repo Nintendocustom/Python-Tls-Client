@@ -91,6 +91,7 @@ class Session:
                  debug: bool = False,
                  certificate_pinning: Optional[Dict[str, List[str]]] = None,
                  disable_ipv6: bool = False,
+                 disable_ipv4: bool = False,
                  ) -> None:
 
         self.MAX_REDIRECTS: int = 30
@@ -331,8 +332,9 @@ class Session:
         # avoid the tls client to print the whole stacktrace when a panic (critical go error) happens
         self.catch_panics = catch_panics
 
-        # disable ipv6
+        # disable ipv6/ipv4
         self.disable_ipv6 = disable_ipv6
+        self.disable_ipv4 = disable_ipv4
         # debugging
         self.debug = debug
 
@@ -461,6 +463,7 @@ class Session:
             # "transportOptions": None,
             # "defaultHeaders": None,
             "disableIPV6": self.disable_ipv6,
+            "disableIPV4": self.disable_ipv4,
             "followRedirects": False,
             "forceHttp1": self.force_http1,
             "headerOrder": self.header_order,
