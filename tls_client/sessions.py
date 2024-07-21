@@ -654,12 +654,10 @@ class Session:
 
     @staticmethod
     def _rebuild_url(url: str, response: Response) -> Optional[str]:
-        url_redirect = response.headers.get("Location", None)
+        url_redirect = response.headers.get("Location")
         if not url_redirect:
             return None
-        if url_redirect.startswith("/"):
-            url = urljoin(url, url_redirect)
-        return url
+        return urljoin(url, url_redirect)
 
     @staticmethod
     def _rebuild_headers(headers: CaseInsensitiveDict) -> CaseInsensitiveDict:
