@@ -369,6 +369,11 @@ class Session:
         cookie_response_bytes = ctypes.string_at(cookie_response)
         cookie_response_string = cookie_response_bytes.decode('utf-8')
         cookie_response_object = loads(cookie_response_string)
+
+        freeMemory(cookie_response_object['id'].encode('utf-8'))
+        if cookie_response_object.get("status") == 0:
+            raise TLSClientExeption(cookie_response_object["body"])
+
         return cookie_response_object["cookies"]
 
     def add_cookies_to_session(self, url: str, cookies: List[Dict[str, str]]) -> None:
@@ -383,7 +388,10 @@ class Session:
         add_cookies_bytes = ctypes.string_at(add_cookies_to_session_response)
         add_cookies_string = add_cookies_bytes.decode('utf-8')
         add_cookies_object = loads(add_cookies_string)
-        print(add_cookies_object)
+
+        freeMemory(add_cookies_object['id'].encode('utf-8'))
+        if add_cookies_object.get("status") == 0:
+            raise TLSClientExeption(add_cookies_object["body"])
 
     @staticmethod
     def _prepare_url(url: str, params: Optional[Dict] = None) -> str:
