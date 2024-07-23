@@ -97,6 +97,20 @@ res = session.post(
 )
 ```
 
+Example 3 - Streaming:
+```python
+import tls_client
+session = tls_client.Session()
+
+res = session.get(
+    "https://www.example.com/",
+    stream=True,
+    chunk_size=128, # chunk size in bytes for writing data
+)
+for line in res.iter_lines(chunk_size=128): # chunk size in bytes for reading data
+    print(line)
+```
+
 # Pyinstaller / Pyarmor
 **If you want to pack the library with Pyinstaller or Pyarmor, make sure to add this to your command:**
 
