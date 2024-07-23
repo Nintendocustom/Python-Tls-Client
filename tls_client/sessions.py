@@ -580,6 +580,7 @@ class Session:
 
         start = preferred_clock()
 
+        history = []
         redirect = 0
         while True:
             request_payload = self._build_request_payload(
@@ -604,6 +605,7 @@ class Session:
             response_object = loads(response_string)
             freeMemory(response_object['id'].encode('utf-8'))
 
+            # todo update for each Response
             elapsed = preferred_clock() - start
 
             # Handle response, split up into new method?
@@ -625,8 +627,10 @@ class Session:
             response.elapsed = timedelta(seconds=elapsed)
 
             if not allow_redirects or not response.is_redirect:
+                response.history = history
                 return response
 
+            history.append(response)
             redirect += 1
 
             if redirect > self.MAX_REDIRECTS:

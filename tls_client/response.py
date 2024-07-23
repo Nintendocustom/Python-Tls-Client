@@ -34,6 +34,8 @@ class Response:
         # A CookieJar of Cookies the server sent back.
         self.cookies = cookiejar_from_dict({})
 
+        self.history: list[Response] = []
+
         self.elapsed = None
         self._content = False
 
