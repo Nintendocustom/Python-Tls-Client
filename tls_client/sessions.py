@@ -8,7 +8,7 @@ import uuid
 from datetime import timedelta
 from json import dumps, loads
 from sys import platform
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import urljoin
 
 from .__version__ import __version__
@@ -402,15 +402,14 @@ class Session:
     @staticmethod
     def _prepare_request_body(data: Optional[Union[str, dict]] = None,
                               json: Optional[Dict] = None
-                              ) -> (Optional[str], Optional[str]):
+                              ) -> Tuple[Optional[str], Optional[str]]:
         if data is None and json is not None:
             if type(json) in [dict, list]:
                 json = dumps(json)
             return json, "application/json"
         elif data is not None and type(data) not in [str, bytes]:
             return urllib.parse.urlencode(data, doseq=True), "application/x-www-form-urlencoded"
-        else:
-            return data, None
+        return data, None
 
     def _merge_headers(self, headers: Optional[Dict] = None) -> CaseInsensitiveDict:
         if self.headers is None:
@@ -461,7 +460,6 @@ class Session:
                                certificate_pinning: Optional[Dict[str, List[str]]] = None
                                ) -> dict:
 
-        # todo replace followRedirect with always being False and Python handling the redirects instead
         # https://bogdanfinn.gitbook.io/open-source-oasis/shared-library/payload
         request_payload = {
             "additionalDecode": self.additional_decode,
