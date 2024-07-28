@@ -1,22 +1,19 @@
+from __future__ import annotations
+
 import os
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+
 import requests
-from datetime import datetime, timezone, timedelta
+
+from .utils import get_dependency_filename
 
 GITHUB_API_URL = "https://api.github.com/repos/bogdanfinn/tls-client/releases/latest"
 LOCAL_VERSION_FILE = os.path.join(os.path.dirname(__file__), "dependencies/version.txt")
 DOWNLOAD_DIR = os.path.dirname(LOCAL_VERSION_FILE)
 CHECK_INTERVAL = timedelta(hours=24)
 
-dependency_filenames = {
-    "tls-client-windows-32": "tls-client-32.dll",
-    "tls-client-windows-64": "tls-client-64.dll",
-    "tls-client-darwin-arm64": "tls-client-arm64.dylib",
-    "tls-client-darwin-amd64": "tls-client-x86.dylib",
-    "tls-client-linux-alpine-amd64": "tls-client-amd64.so",
-    "tls-client-linux-ubuntu-amd64": "tls-client-x86.so",
-    "tls-client-linux-arm64": "tls-client-arm64.so",
-}
+CURRENT_DEPENDENCY_FILENAME = get_dependency_filename()
 
 
 def get_latest_release(session: requests.Session) -> tuple[Any, str | None] | None:
@@ -91,14 +88,17 @@ def update_lib() -> None:
     print(f"New version found: {latest_version}. Updating...")
 
     assets = latest_release["assets"]
+    dependency = CURRENT_DEPENDENCY_FILENAME.rsplit(".", 1)[0]
     for asset in assets:
-        asset_name = asset["name"].rsplit("-", 1)[0]
-        if asset_name in dependency_filenames:
+        if asset["name"].startswith(dependency):
             download_url = asset["browser_download_url"]
-            dest_filename = dependency_filenames[asset_name]
-            dest_path = os.path.join(DOWNLOAD_DIR, dest_filename)
+            dest_path = os.path.join(DOWNLOAD_DIR, CURRENT_DEPENDENCY_FILENAME)
             download_file(session, download_url, dest_path)
-            print(f"Downloaded {dest_filename} from {download_url}")
+            print(f"Downloaded {CURRENT_DEPENDENCY_FILENAME} from {download_url}")
+            break
+    else:
+        print(f"Could not find asset for {CURRENT_DEPENDENCY_FILENAME}")
+        return
 
     save_local_version(latest_version, last_modified)
     print(f"Updated to version {latest_version}")
