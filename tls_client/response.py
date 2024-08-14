@@ -106,7 +106,7 @@ class Response:
             511: 'Network Authentication Required'
         }
 
-        # todo history, links, next, request
+        # todo links, next, request
 
     def __enter__(self):
         return self
@@ -307,7 +307,11 @@ def get_encoding_from_headers(headers):
         return "utf-8"
 
 
-def build_response(res: Union[dict, list], res_cookies: RequestsCookieJar, filepath=None) -> Response:
+def clean_dict(data):
+    return {key: value for key, value in data.items() if value is not None and value != ''}
+
+
+def build_response(res: Union[dict, list], res_cookies: RequestsCookieJar, request_payload: dict, filepath=None) -> Response:
     """Builds a Response object """
     response = Response()
     # Add target / url
@@ -330,4 +334,5 @@ def build_response(res: Union[dict, list], res_cookies: RequestsCookieJar, filep
     # Add response content (bytes)
     response._content = base64.b64decode(res["body"].split(",", 1)[1])
     response._filepath = filepath
+    response.request = clean_dict(request_payload)
     return response

@@ -621,9 +621,9 @@ class Session:
 
             if stream:
                 filepath = os.path.join(os.getcwd(), self._session_id)
-                response = build_response(response_object, response_cookie_jar, filepath)
+                response = build_response(response_object, response_cookie_jar, request_payload, filepath)
             else:
-                response = build_response(response_object, response_cookie_jar)
+                response = build_response(response_object, response_cookie_jar, request_payload)
             response.elapsed = timedelta(seconds=elapsed)
 
             if not allow_redirects or not response.is_redirect:
