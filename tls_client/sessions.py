@@ -565,7 +565,7 @@ class Session:
         request_body, content_type = self._prepare_request_body(data, json)
 
         headers = self._merge_headers(headers)
-        if content_type is not None:
+        if content_type is not None and "content-type" not in headers:
             headers["Content-Type"] = content_type
 
         request_cookies = self._prepare_cookies(cookies)
