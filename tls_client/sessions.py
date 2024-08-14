@@ -578,11 +578,10 @@ class Session:
 
         is_byte_request = isinstance(request_body, (bytes, bytearray))
 
-        start = preferred_clock()
-
         history = []
         redirect = 0
         while True:
+            start = preferred_clock()
             request_payload = self._build_request_payload(
                 method=method,
                 url=url,
@@ -626,8 +625,8 @@ class Session:
                 response = build_response(response_object, response_cookie_jar, request_payload)
             response.elapsed = timedelta(seconds=elapsed)
 
+            response.history = history
             if not allow_redirects or not response.is_redirect:
-                response.history = history
                 return response
 
             history.append(response)
