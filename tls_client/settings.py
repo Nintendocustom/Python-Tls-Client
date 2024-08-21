@@ -27,6 +27,7 @@ ClientIdentifiers: TypeAlias = Literal[
     "safari_ios_15_6",
     "safari_ios_16_0",
     "safari_ios_17_0",
+    "safari_ios_18_0",
     # iPadOS (Safari)
     "safari_ios_15_6",
     # FireFox
