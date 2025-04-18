@@ -13,6 +13,9 @@
 # requests: https://github.com/psf/requests
 from .update_lib import update_lib
 
-update_lib()
+try:
+    update_lib()
+except Exception as e:
+    print(e)
 
 from .sessions import Session
