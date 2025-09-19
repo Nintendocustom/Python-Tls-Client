@@ -87,11 +87,13 @@ class Session:
                  header_priority: Optional[List[str]] = None,
                  random_tls_extension_order: bool = False,
                  force_http1: bool = False,
+                 disable_http3: bool = False,
                  catch_panics: bool = False,
                  debug: bool = False,
                  certificate_pinning: Optional[Dict[str, List[str]]] = None,
                  disable_ipv6: bool = False,
                  disable_ipv4: bool = False,
+                 disable_compression: bool = False,
                  ) -> None:
 
         self.MAX_REDIRECTS: int = 30
@@ -100,7 +102,7 @@ class Session:
         # --- Standard Settings ----------------------------------------------------------------------------------------
 
         # Case-insensitive dictionary of headers, send on each request
-        self.headers = CaseInsensitiveDict(
+        self.headers: CaseInsensitiveDict = CaseInsensitiveDict(
             {
                 "User-Agent": f"tls-client/{__version__}",
                 "Accept-Encoding": "gzip, deflate, br",
@@ -327,6 +329,8 @@ class Session:
 
         # force HTTP1
         self.force_http1 = force_http1
+        # disable HTTP3
+        self.disable_http3 = disable_http3
 
         # catch panics
         # avoid the tls client to print the whole stacktrace when a panic (critical go error) happens
@@ -337,6 +341,8 @@ class Session:
         self.disable_ipv4 = disable_ipv4
         # debugging
         self.debug = debug
+
+        self.disable_compression = disable_compression
 
     def __enter__(self):
         return self
@@ -415,7 +421,7 @@ class Session:
         if self.headers is None:
             return CaseInsensitiveDict(headers)
         elif headers is None:
-            return self.headers.copy()
+            return CaseInsensitiveDict(self.headers.copy())
         else:
             merged_headers = self.headers.copy()
             merged_headers.update(headers)
@@ -472,6 +478,7 @@ class Session:
             "disableIPV4": self.disable_ipv4,
             "followRedirects": False,
             "forceHttp1": self.force_http1,
+            "disableHttp3": self.disable_http3,
             "headerOrder": self.header_order,
             "headers": dict(headers),
             "insecureSkipVerify": not verify,
@@ -504,6 +511,13 @@ class Session:
         if certificate_pinning:
             request_payload["certificatePinningHosts"] = certificate_pinning
 
+        if self.disable_compression:
+            request_payload["transportOptions"] = {
+                "disableCompression": self.disable_compression
+            }
+            request_payload["headers"].update({"Accept-Encoding": None})
+
+        # todo implement the following settings
         if False:
             request_payload["transportOptions"] = {
                 "disableCompression": False,
