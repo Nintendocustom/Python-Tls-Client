@@ -18,12 +18,15 @@ CURRENT_DEPENDENCY_FILENAME = get_dependency_filename()
 
 def get_latest_release(session: requests.Session) -> tuple[Any, str | None] | None:
     headers = {}
+    github_token = os.getenv("GITHUB_TOKEN")
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+
     local_version_info = read_local_version()
     if local_version_info and 'Etag' in local_version_info:
         headers['If-None-Match'] = local_version_info['Etag']
 
     response = session.get(GITHUB_API_URL, headers=headers)
-
     if response.status_code == 304:  # Not Modified
         return None
 
