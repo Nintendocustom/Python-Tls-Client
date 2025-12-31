@@ -500,7 +500,7 @@ class Session:
             "timeoutSeconds": timeout,
             # "tlsClientIdentifier": "",
             "withDebug": self.debug,
-            "withDefaultCookieJar": False,
+            "withCustomCookieJar": False,
             "withoutCookieJar": False,
             # "withRandomTLSExtensionOrder": False,
         }
