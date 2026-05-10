@@ -70,7 +70,7 @@ class SteamThread(threading.Thread):
 
 class Session:
     def __init__(self,
-                 client_identifier: ClientIdentifiers = "chrome_124",
+                 client_identifier: ClientIdentifiers = "chrome_146",
                  ja3_string: Optional[str] = None,
                  h2_settings: Optional[Dict[str, int]] = None,
                  h2_settings_order: Optional[List[str]] = None,
