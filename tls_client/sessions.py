@@ -70,7 +70,7 @@ class SteamThread(threading.Thread):
 
 class Session:
     def __init__(self,
-                 client_identifier: ClientIdentifiers = "chrome_146",
+                 client_identifier: ClientIdentifiers = "chrome_150",
                  ja3_string: Optional[str] = None,
                  h2_settings: Optional[Dict[str, int]] = None,
                  h2_settings_order: Optional[List[str]] = None,
@@ -479,12 +479,13 @@ class Session:
             "followRedirects": False,
             "forceHttp1": self.force_http1,
             "disableHttp3": self.disable_http3,
+            # "DisableSessionTickets": bool, # todo add support
             "headerOrder": self.header_order,
             "headers": dict(headers),
             "insecureSkipVerify": not verify,
             "isByteRequest": is_byte_request,
             "isByteResponse": True,
-            # "euckrResponse": False,
+            "euckrResponse": False,
             "isRotatingProxy": False,
             "localAddress": None,
             "proxyUrl": proxy,
@@ -544,6 +545,7 @@ class Session:
                 "h2SettingsOrder": self.h2_settings_order,
                 "headerPriority": self.header_priority,
                 "ja3String": self.ja3_string,
+                "TrustAnchorsPayload": self.trust_anchors_payload,  # todo add support for trust anchors
                 "keyShareCurves": self.key_share_curves,
                 "priorityFrames": self.priority_frames,
                 "pseudoHeaderOrder": self.pseudo_header_order,

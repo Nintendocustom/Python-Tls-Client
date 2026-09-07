@@ -29,6 +29,8 @@ ClientIdentifiers: TypeAlias = Literal[
     "chrome_146_PSK",
     "chrome_150",
     "chrome_150_PSK",
+    "chrome_152",
+    "chrome_152_PSK",
     "brave_146",
     "brave_146_PSK",
     # Safari
