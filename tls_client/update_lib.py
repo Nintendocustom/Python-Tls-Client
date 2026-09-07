@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+import platform
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 import requests
 
-from .utils import get_dependency_filename
+from .utils import get_dependency_filename, get_upstream_asset_suffix
 
 GITHUB_API_URL = "https://api.github.com/repos/bogdanfinn/tls-client/releases/latest"
 LOCAL_VERSION_FILE = os.path.join(os.path.dirname(__file__), "dependencies/version.txt")
@@ -17,7 +18,7 @@ CURRENT_DEPENDENCY_FILENAME = get_dependency_filename()
 
 
 def get_latest_release(session: requests.Session) -> tuple[Any, str | None] | None:
-    headers = {}
+    headers = {"Accept": "application/vnd.github.v3+json"}
     github_token = os.getenv("GITHUB_TOKEN")
     if github_token:
         headers["Authorization"] = f"Bearer {github_token}"
@@ -69,12 +70,26 @@ def should_check_update() -> bool:
     return datetime.now(timezone.utc) - last_check > CHECK_INTERVAL
 
 
+def find_matching_asset(assets: list, asset_suffix: str) -> dict | None:
+    if not asset_suffix:
+        return None
+
+    for asset in assets:
+        if asset.get("name", "").endswith(asset_suffix):
+            return asset
+    return None
+
+
 def update_lib() -> None:
     if not should_check_update():
         return
 
-    session = requests.Session()
+    asset_suffix = get_upstream_asset_suffix()
+    if not CURRENT_DEPENDENCY_FILENAME or not asset_suffix:
+        print(f"Unsupported system architecture: {platform.system()} {platform.machine()}")
+        return
 
+    session = requests.Session()
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
     result = get_latest_release(session)
@@ -91,17 +106,17 @@ def update_lib() -> None:
     print(f"New version found: {latest_version}. Updating...")
 
     assets = latest_release["assets"]
-    dependency = CURRENT_DEPENDENCY_FILENAME.rsplit(".", 1)[0]
-    for asset in assets:
-        if asset["name"].startswith(dependency):
-            download_url = asset["browser_download_url"]
-            dest_path = os.path.join(DOWNLOAD_DIR, CURRENT_DEPENDENCY_FILENAME)
-            download_file(session, download_url, dest_path)
-            print(f"Downloaded {CURRENT_DEPENDENCY_FILENAME} from {download_url}")
-            break
-    else:
-        print(f"Could not find asset for {CURRENT_DEPENDENCY_FILENAME}")
+    matched_asset = find_matching_asset(assets, asset_suffix)
+
+    if matched_asset is None:
+        print(f"Could not find asset for {CURRENT_DEPENDENCY_FILENAME} "
+              f"(expected suffix: {asset_suffix})")
         return
+
+    download_url = matched_asset["browser_download_url"]
+    dest_path = os.path.join(DOWNLOAD_DIR, CURRENT_DEPENDENCY_FILENAME)
+    print(f"Downloading {CURRENT_DEPENDENCY_FILENAME} from {download_url}")
+    download_file(session, download_url, dest_path)
 
     save_local_version(latest_version, last_modified)
     print(f"Updated to version {latest_version}")
